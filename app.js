@@ -100,12 +100,51 @@ io.on('connection', (socket) => {
 
     // 6. RESET
     socket.on('reset_game', (roomId) => {
-        const room = rooms[roomId];
-        if (room && socket.id === room.dealer) {
-            room.drawnNumbers = [];
-            io.in(roomId).emit('game_reset', room);
+    const room = rooms[roomId];
+    if (room && socket.id === room.dealer) { // Chỉ Dealer mới có quyền reset
+        // 1. Xóa lịch sử quay số
+        room.drawnNumbers = [];
+        
+        // 2. Reset trạng thái Sẵn sàng của tất cả user về false
+        room.users.forEach(u => {
+            u.isReady = false; 
+        });
+
+        // 3. Thông báo cho cả phòng
+        io.to(roomId).emit('game_reset', {
+            tickets: room.tickets, // Giữ nguyên chủ sở hữu vé
+            users: room.users      // Danh sách user với isReady = false
+        });
+        
+        // 4. Gửi trạng thái "Chưa sẵn sàng" để khóa nút Quay số của Dealer ngay lập tức
+        io.to(roomId).emit('update_ready_status', {
+            allReady: false,
+            users: room.users
+        });
+    }
+});
+
+    // READY
+    socket.on('ready', (roomId) => {
+    const room = rooms[roomId];
+    if (room) {
+        const idx = room.users.findIndex(u => u.id === socket.id);
+        if (idx !== -1) {
+            room.users[idx].isReady = true;
+
+            // Kiểm tra xem tất cả người chơi (không tính Dealer) đã sẵn sàng chưa
+            // Nếu phòng chỉ có 1 mình Dealer thì coi như sẵn sàng luôn
+            const players = room.users.filter(u => u.id !== room.dealer);
+            const allReady = players.length === 0 || players.every(u => u.isReady);
+
+            // Gửi trạng thái sẵn sàng mới nhất cho cả phòng để cập nhật UI
+            io.to(roomId).emit('update_ready_status', {
+                allReady: allReady,
+                users: room.users
+            });
         }
-    });
+    }
+});
 
     socket.on('disconnect', () => {
         for (const rid in rooms) {
