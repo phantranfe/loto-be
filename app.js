@@ -20,6 +20,19 @@ const initTickets = () => {
     return tickets;
 };
 
+const checkReadyStatus = () => {
+
+            // Kiểm tra xem tất cả người chơi (không tính Dealer) đã sẵn sàng chưa
+            // Nếu phòng chỉ có 1 mình Dealer thì coi như sẵn sàng luôn
+            const players = room.users.filter(u => u.id !== room.dealer);
+            const allReady = players.length === 0 || players.every(u => u.isReady);
+
+            // Gửi trạng thái sẵn sàng mới nhất cho cả phòng để cập nhật UI
+            io.to(roomId).emit('update_ready_status', {
+                allReady: allReady,
+                users: room.users
+            });}
+
 io.on('connection', (socket) => {
     // 1. THAM GIA PHÒNG + CHECK UNIQUE + PASS
     socket.on('join_room', ({ roomId, userName, password }) => {
@@ -46,6 +59,7 @@ io.on('connection', (socket) => {
         room.users.push({ id: socket.id, name: userName });
         socket.join(roomId);
         io.in(roomId).emit('room_state', room);
+        checkReadyStatus();
     });
 
     // 2. CHỌN VÉ + CHẶN KHI ĐÃ QUAY SỐ
@@ -131,17 +145,7 @@ io.on('connection', (socket) => {
         const idx = room.users.findIndex(u => u.id === socket.id);
         if (idx !== -1) {
             room.users[idx].isReady = true;
-
-            // Kiểm tra xem tất cả người chơi (không tính Dealer) đã sẵn sàng chưa
-            // Nếu phòng chỉ có 1 mình Dealer thì coi như sẵn sàng luôn
-            const players = room.users.filter(u => u.id !== room.dealer);
-            const allReady = players.length === 0 || players.every(u => u.isReady);
-
-            // Gửi trạng thái sẵn sàng mới nhất cho cả phòng để cập nhật UI
-            io.to(roomId).emit('update_ready_status', {
-                allReady: allReady,
-                users: room.users
-            });
+            checkReadyStatus();
         }
     }
 });
