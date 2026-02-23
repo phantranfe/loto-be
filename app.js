@@ -81,15 +81,11 @@ io.on('connection', (socket) => {
     });
 
     // 4. QUAY SỐ (CHỈ DEALER)
-    socket.on('draw_number', (roomId) => {
+    socket.on('draw_number', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer && room.drawnNumbers.length < 90) {
-            let num;
-            do { num = Math.floor(Math.random() * 90) + 1; } 
-            while (room.drawnNumbers.includes(num));
-
-            room.drawnNumbers.push(num);
-            io.in(roomId).emit('new_number', { number: num, history: room.drawnNumbers });
+            room.drawnNumbers.push(number);
+            io.in(roomId).emit('new_number', { number: number, history: room.drawnNumbers });
         }
     });
 
