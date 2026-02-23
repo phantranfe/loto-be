@@ -100,7 +100,7 @@ io.on('connection', (socket) => {
     });
 
     // 4. QUAY SỐ (Server quyết định số)
-    socket.on('draw_number', (roomId) => {
+    socket.on('draw_number', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer && room.drawnNumbers.length < 90) {
             // Kiểm tra lại lần nữa xem mọi người đã ready chưa (bảo mật server)
@@ -109,13 +109,8 @@ io.on('connection', (socket) => {
 
             if (!allReady) return socket.emit('error_msg', 'Chưa đủ người sẵn sàng!');
 
-            let num;
-            do {
-                num = Math.floor(Math.random() * 90) + 1;
-            } while (room.drawnNumbers.includes(num));
-
-            room.drawnNumbers.push(num);
-            io.in(roomId).emit('new_number', { number: num, history: room.drawnNumbers });
+            room.drawnNumbers.push(number);
+            io.in(roomId).emit('new_number', { number: number, history: room.drawnNumbers });
         }
     });
 
