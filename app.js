@@ -11,6 +11,7 @@ const io = new Server(server, {
 
 const rooms = {};
 
+// Hàm khởi tạo vé để dùng chung
 const initTickets = () => {
     let tickets = [];
     TICKET_SETS.forEach((set, idx) => {
@@ -26,18 +27,17 @@ io.on('connection', (socket) => {
     // 1. THAM GIA PHÒNG
     socket.on('join_room', ({ roomId, userName, password }) => {
         if (!rooms[roomId]) {
-            // Tạo phòng mới nếu chưa có
             rooms[roomId] = {
                 id: roomId,
                 password: password,
-                dealer: socket.id, // Người tạo phòng làm Cái đầu tiên
+                dealer: socket.id, 
                 users: [],
                 drawnNumbers: [],
-                tickets: JSON.parse(JSON.stringify(initialTickets)), // Clone dữ liệu vé
+                // FIX LỖI: Gọi hàm initTickets() thay vì dùng biến initialTickets chưa định nghĩa
+                tickets: initTickets(), 
                 gameStarted: false
             };
         } else {
-            // Kiểm tra mật khẩu nếu phòng đã tồn tại
             if (rooms[roomId].password !== password) {
                 return socket.emit('join_error', 'Sai mật khẩu phòng!');
             }
@@ -45,9 +45,11 @@ io.on('connection', (socket) => {
 
         const room = rooms[roomId];
         
-        // Thêm user vào danh sách
-        const user = { id: socket.id, name: userName };
-        room.users.push(user);
+        // Tránh trùng lặp user nếu reconnect
+        const existingUser = room.users.find(u => u.id === socket.id);
+        if (!existingUser) {
+            room.users.push({ id: socket.id, name: userName });
+        }
         
         socket.join(roomId);
         io.in(roomId).emit('room_state', room);
@@ -58,6 +60,7 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
         if (room) {
             const ticket = room.tickets.find(t => t.id === ticketId);
+            // Thêm check ticket tồn tại tránh crash
             if (ticket && !ticket.owner) {
                 ticket.owner = socket.id;
                 ticket.userName = userName;
@@ -83,18 +86,18 @@ io.on('connection', (socket) => {
     socket.on('draw_number', (roomId) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer) {
+            if (room.drawnNumbers.length >= 90) return;
+
             let num;
             do {
                 num = Math.floor(Math.random() * 90) + 1;
-            } while (room.drawnNumbers.includes(num) && room.drawnNumbers.length < 90);
+            } while (room.drawnNumbers.includes(num));
 
-            if (room.drawnNumbers.length < 90) {
-                room.drawnNumbers.push(num);
-                io.in(roomId).emit('new_number', {
-                    number: num,
-                    history: room.drawnNumbers
-                });
-            }
+            room.drawnNumbers.push(num);
+            io.in(roomId).emit('new_number', {
+                number: num,
+                history: room.drawnNumbers
+            });
         }
     });
 
@@ -103,7 +106,6 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer) {
             room.dealer = targetUserId;
-            // Thông báo trạng thái mới cho cả phòng
             io.in(roomId).emit('room_state', room);
         }
     });
@@ -113,8 +115,8 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer) {
             room.drawnNumbers = [];
-            // Nếu muốn reset cả người sở hữu vé, bỏ comment dòng dưới:
-            // room.tickets.forEach(t => { t.owner = null; t.userName = null; });
+            // Reset luôn trạng thái gameStarted nếu cần
+            room.gameStarted = false; 
             io.in(roomId).emit('game_reset', room);
         }
     });
@@ -133,7 +135,7 @@ io.on('connection', (socket) => {
             if (userIndex !== -1) {
                 room.users.splice(userIndex, 1);
                 
-                // Giải phóng vé nếu người đó thoát
+                // Giải phóng vé khi thoát
                 room.tickets.forEach(t => {
                     if (t.owner === socket.id) {
                         t.owner = null;
@@ -141,20 +143,16 @@ io.on('connection', (socket) => {
                     }
                 });
 
-                // Nếu Dealer thoát, chỉ định người tiếp theo làm dealer (nếu còn người)
-                if (room.dealer === socket.id && room.users.length > 0) {
-                    room.dealer = room.users[0].id;
-                }
-
-                // Nếu không còn ai, xóa phòng
                 if (room.users.length === 0) {
                     delete rooms[roomId];
                 } else {
+                    if (room.dealer === socket.id) {
+                        room.dealer = room.users[0].id;
+                    }
                     io.in(roomId).emit('room_state', room);
                 }
             }
         }
-        console.log('User disconnected');
     });
 });
 
