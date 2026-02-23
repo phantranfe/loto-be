@@ -11,6 +11,7 @@ const io = new Server(server, {
 
 const rooms = {};
 
+// Khởi tạo bộ vé từ constants
 const initTickets = () => {
     let tickets = [];
     TICKET_SETS.forEach((set, idx) => {
@@ -20,21 +21,25 @@ const initTickets = () => {
     return tickets;
 };
 
-const checkReadyStatus = () => {
+// Hàm kiểm tra trạng thái sẵn sàng - Đã sửa lỗi tham số
+const checkReadyStatus = (roomId) => {
+    const room = rooms[roomId];
+    if (room) {
+        // Chỉ tính những người không phải Dealer
+        const players = room.users.filter(u => u.id !== room.dealer);
+        // Sẵn sàng khi: Có người chơi và tất cả đều ready, hoặc phòng chỉ có mỗi Dealer
+        const allReady = players.length > 0 ? players.every(u => u.isReady) : true;
 
-            // Kiểm tra xem tất cả người chơi (không tính Dealer) đã sẵn sàng chưa
-            // Nếu phòng chỉ có 1 mình Dealer thì coi như sẵn sàng luôn
-            const players = room.users.filter(u => u.id !== room.dealer);
-            const allReady = players.length === 0 || players.every(u => u.isReady);
-
-            // Gửi trạng thái sẵn sàng mới nhất cho cả phòng để cập nhật UI
-            io.to(roomId).emit('update_ready_status', {
-                allReady: allReady,
-                users: room.users
-            });}
+        io.to(roomId).emit('update_ready_status', {
+            allReady: allReady,
+            users: room.users
+        });
+    }
+};
 
 io.on('connection', (socket) => {
-    // 1. THAM GIA PHÒNG + CHECK UNIQUE + PASS
+    
+    // 1. THAM GIA PHÒNG
     socket.on('join_room', ({ roomId, userName, password }) => {
         if (!rooms[roomId]) {
             rooms[roomId] = {
@@ -49,42 +54,42 @@ io.on('connection', (socket) => {
             if (rooms[roomId].password !== password) {
                 return socket.emit('join_error', 'Mật khẩu phòng không chính xác!');
             }
-            const nameExists = rooms[roomId].users.some(u => u.name.trim().toLowerCase() === userName.trim().toLowerCase());
+            const nameExists = rooms[roomId].users.some(u => 
+                u.name.trim().toLowerCase() === userName.trim().toLowerCase()
+            );
             if (nameExists) {
-                return socket.emit('join_error', 'Tên này đã có người sử dụng trong phòng!');
+                return socket.emit('join_error', 'Tên này đã có người sử dụng!');
             }
         }
 
         const room = rooms[roomId];
-        room.users.push({ id: socket.id, name: userName });
+        // Thêm user mới với trạng thái isReady mặc định là false
+        room.users.push({ id: socket.id, name: userName, isReady: false });
         socket.join(roomId);
+        
         io.in(roomId).emit('room_state', room);
-        checkReadyStatus();
+        checkReadyStatus(roomId);
     });
 
-    // 2. CHỌN VÉ + CHẶN KHI ĐÃ QUAY SỐ
+    // 2. CHỌN VÉ
     socket.on('pick_ticket', ({ roomId, ticketId, userName }) => {
         const room = rooms[roomId];
-        if (room) {
-            if (room.drawnNumbers.length > 0) {
-                return socket.emit('error_msg', 'Số đã quay, không thể chọn thêm tờ mới!');
-            }
+        if (room && room.drawnNumbers.length === 0) {
             const ticket = room.tickets.find(t => t.id === ticketId);
             if (ticket && !ticket.owner) {
                 ticket.owner = socket.id;
                 ticket.userName = userName;
                 io.in(roomId).emit('update_tickets', room.tickets);
             }
+        } else {
+            socket.emit('error_msg', 'Không thể chọn vé lúc này!');
         }
     });
 
-    // 3. BỎ CHỌN VÉ + CHẶN KHI ĐÃ QUAY SỐ
+    // 3. BỎ CHỌN VÉ
     socket.on('unpick_ticket', ({ roomId, ticketId }) => {
         const room = rooms[roomId];
-        if (room) {
-            if (room.drawnNumbers.length > 0) {
-                return socket.emit('error_msg', 'Không thể bỏ tờ khi ván đấu đã bắt đầu!');
-            }
+        if (room && room.drawnNumbers.length === 0) {
             const ticket = room.tickets.find(t => t.id === ticketId);
             if (ticket && ticket.owner === socket.id) {
                 ticket.owner = null;
@@ -94,12 +99,23 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 4. QUAY SỐ (CHỈ DEALER)
-    socket.on('draw_number', ({ roomId, number }) => {
+    // 4. QUAY SỐ (Server quyết định số)
+    socket.on('draw_number', (roomId) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer && room.drawnNumbers.length < 90) {
-            room.drawnNumbers.push(number);
-            io.in(roomId).emit('new_number', { number: number, history: room.drawnNumbers });
+            // Kiểm tra lại lần nữa xem mọi người đã ready chưa (bảo mật server)
+            const players = room.users.filter(u => u.id !== room.dealer);
+            const allReady = players.length > 0 ? players.every(u => u.isReady) : true;
+
+            if (!allReady) return socket.emit('error_msg', 'Chưa đủ người sẵn sàng!');
+
+            let num;
+            do {
+                num = Math.floor(Math.random() * 90) + 1;
+            } while (room.drawnNumbers.includes(num));
+
+            room.drawnNumbers.push(num);
+            io.in(roomId).emit('new_number', { number: num, history: room.drawnNumbers });
         }
     });
 
@@ -108,63 +124,62 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer) {
             room.dealer = targetUserId;
+            // Khi giao cái, cần tính toán lại trạng thái Ready vì Dealer mới không cần Ready
+            checkReadyStatus(roomId);
             io.in(roomId).emit('room_state', room);
         }
     });
 
-    // 6. RESET
-    socket.on('reset_game', (roomId) => {
-    const room = rooms[roomId];
-    if (room && socket.id === room.dealer) { // Chỉ Dealer mới có quyền reset
-        // 1. Xóa lịch sử quay số
-        room.drawnNumbers = [];
-        
-        // 2. Reset trạng thái Sẵn sàng của tất cả user về false
-        room.users.forEach(u => {
-            u.isReady = false; 
-        });
-
-        // 3. Thông báo cho cả phòng
-        io.to(roomId).emit('game_reset', {
-            tickets: room.tickets, // Giữ nguyên chủ sở hữu vé
-            users: room.users      // Danh sách user với isReady = false
-        });
-        
-        // 4. Gửi trạng thái "Chưa sẵn sàng" để khóa nút Quay số của Dealer ngay lập tức
-        io.to(roomId).emit('update_ready_status', {
-            allReady: false,
-            users: room.users
-        });
-    }
-});
-
-    // READY
+    // 6. SẴN SÀNG
     socket.on('ready', (roomId) => {
-    const room = rooms[roomId];
-    if (room) {
-        const idx = room.users.findIndex(u => u.id === socket.id);
-        if (idx !== -1) {
-            room.users[idx].isReady = true;
-            checkReadyStatus();
+        const room = rooms[roomId];
+        if (room) {
+            const user = room.users.find(u => u.id === socket.id);
+            if (user) {
+                user.isReady = true;
+                checkReadyStatus(roomId);
+            }
         }
-    }
-});
+    });
 
+    // 7. RESET GAME
+    socket.on('reset_game', (roomId) => {
+        const room = rooms[roomId];
+        if (room && socket.id === room.dealer) {
+            room.drawnNumbers = [];
+            room.users.forEach(u => u.isReady = false);
+            
+            io.to(roomId).emit('game_reset', {
+                tickets: room.tickets,
+                users: room.users
+            });
+            checkReadyStatus(roomId);
+        }
+    });
+
+    // 8. NGẮT KẾT NỐI
     socket.on('disconnect', () => {
         for (const rid in rooms) {
             const r = rooms[rid];
             const idx = r.users.findIndex(u => u.id === socket.id);
             if (idx !== -1) {
                 r.users.splice(idx, 1);
-                r.tickets.forEach(t => { if(t.owner === socket.id){ t.owner = null; t.userName = null; }});
-                if (r.users.length === 0) delete rooms[rid];
-                else {
+                // Giải phóng vé nếu user thoát
+                r.tickets.forEach(t => { 
+                    if(t.owner === socket.id){ t.owner = null; t.userName = null; }
+                });
+
+                if (r.users.length === 0) {
+                    delete rooms[rid];
+                } else {
                     if (r.dealer === socket.id) r.dealer = r.users[0].id;
                     io.in(rid).emit('room_state', r);
+                    checkReadyStatus(rid); // Cập nhật lại nút quay cho Dealer mới
                 }
             }
         }
     });
 });
 
-server.listen(3000, () => console.log('Server running on port 3000'));
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
