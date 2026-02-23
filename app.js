@@ -90,6 +90,15 @@ io.on('connection', (socket) => {
             }
         });
     });
+
+    // Thêm sự kiện này vào bên trong io.on('connection')
+    socket.on('change_dealer', ({ roomId, targetUserId }) => {
+        const room = rooms[roomId];
+        if (room && socket.id === room.dealer) {
+            room.dealer = targetUserId;
+            io.in(roomId).emit('room_state', room);
+        }
+    });
 });
 
 const PORT = process.env.PORT || 3000;
