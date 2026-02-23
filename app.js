@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { TICKET_SETS } = require('./constants');
+const { TICKET_SETS } = require('./constants'); // Đảm bảo file constants.js tồn tại
 
 const app = express();
 const server = http.createServer(app);
@@ -21,26 +21,25 @@ const initTickets = () => {
 };
 
 io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+    socket.on('join_room', ({ roomId, userName, password }) => {
+        if (rooms[roomId] && rooms[roomId].password !== password) {
+            return socket.emit('join_error', "Sai mật khẩu phòng!");
+        }
 
-    socket.on('join_room', ({ roomId, userName }) => {
         socket.join(roomId);
         if (!rooms[roomId]) {
             rooms[roomId] = {
                 admin: socket.id,
                 dealer: socket.id,
+                password: password,
                 drawnNumbers: [],
                 tickets: initTickets(),
                 users: []
             };
         }
-        // Tránh trùng lặp user khi reconnect
         rooms[roomId].users = rooms[roomId].users.filter(u => u.id !== socket.id);
         rooms[roomId].users.push({ id: socket.id, name: userName });
-        
-        // ĐỒNG BỘ TÊN: room_state
         io.in(roomId).emit('room_state', rooms[roomId]);
-        console.log(`User ${userName} vào phòng ${roomId}`);
     });
 
     socket.on('pick_ticket', ({ roomId, ticketId, userName }) => {
@@ -57,8 +56,7 @@ io.on('connection', (socket) => {
     socket.on('draw_number', (roomId) => {
         const room = rooms[roomId];
         if (!room || socket.id !== room.dealer) return;
-        const available = Array.from({length: 90}, (_, i) => i + 1)
-                               .filter(n => !room.drawnNumbers.includes(n));
+        const available = Array.from({length: 90}, (_, i) => i + 1).filter(n => !room.drawnNumbers.includes(n));
         if (available.length > 0) {
             const result = available[Math.floor(Math.random() * available.length)];
             room.drawnNumbers.push(result);
@@ -66,8 +64,16 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('claim_win', ({ roomId, userName, ticketId }) => {
-        io.in(roomId).emit('announce_winner', { userName, ticketId });
+    socket.on('reset_game', (roomId) => {
+        const room = rooms[roomId];
+        if (room && socket.id === room.dealer) {
+            room.drawnNumbers = [];
+            io.in(roomId).emit('game_reset', room);
+        }
+    });
+
+    socket.on('claim_win', ({ roomId, userName }) => {
+        io.in(roomId).emit('announce_winner', { userName });
     });
 
     socket.on('disconnecting', () => {
@@ -75,7 +81,6 @@ io.on('connection', (socket) => {
             const room = rooms[roomId];
             if (room) {
                 room.users = room.users.filter(u => u.id !== socket.id);
-                room.tickets.forEach(t => { if(t.owner === socket.id) { t.owner = null; t.userName = null; }});
                 if (room.users.length === 0) { delete rooms[roomId]; } 
                 else {
                     if (room.admin === socket.id) room.admin = room.users[0].id;
@@ -88,4 +93,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Loto Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server chạy tại port ${PORT}`));
