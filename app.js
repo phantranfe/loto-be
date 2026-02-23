@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { TICKET_SETS } = require('./constants'); // Đảm bảo file constants.js tồn tại
+const { TICKET_SETS } = require('./constants'); 
 
 const app = express();
 const server = http.createServer(app);
@@ -11,7 +11,6 @@ const io = new Server(server, {
 
 const rooms = {};
 
-// Hàm khởi tạo vé để dùng chung
 const initTickets = () => {
     let tickets = [];
     TICKET_SETS.forEach((set, idx) => {
@@ -22,45 +21,41 @@ const initTickets = () => {
 };
 
 io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
-
-    // 1. THAM GIA PHÒNG
+    // 1. THAM GIA PHÒNG + CHECK UNIQUE + PASS
     socket.on('join_room', ({ roomId, userName, password }) => {
         if (!rooms[roomId]) {
             rooms[roomId] = {
                 id: roomId,
                 password: password,
-                dealer: socket.id, 
+                dealer: socket.id,
                 users: [],
                 drawnNumbers: [],
-                // FIX LỖI: Gọi hàm initTickets() thay vì dùng biến initialTickets chưa định nghĩa
-                tickets: initTickets(), 
-                gameStarted: false
+                tickets: initTickets()
             };
         } else {
             if (rooms[roomId].password !== password) {
-                return socket.emit('join_error', 'Sai mật khẩu phòng!');
+                return socket.emit('join_error', 'Mật khẩu phòng không chính xác!');
+            }
+            const nameExists = rooms[roomId].users.some(u => u.name.trim().toLowerCase() === userName.trim().toLowerCase());
+            if (nameExists) {
+                return socket.emit('join_error', 'Tên này đã có người sử dụng trong phòng!');
             }
         }
 
         const room = rooms[roomId];
-        
-        // Tránh trùng lặp user nếu reconnect
-        const existingUser = room.users.find(u => u.id === socket.id);
-        if (!existingUser) {
-            room.users.push({ id: socket.id, name: userName });
-        }
-        
+        room.users.push({ id: socket.id, name: userName });
         socket.join(roomId);
         io.in(roomId).emit('room_state', room);
     });
 
-    // 2. CHỌN VÉ (KHÓA VÉ)
+    // 2. CHỌN VÉ + CHẶN KHI ĐÃ QUAY SỐ
     socket.on('pick_ticket', ({ roomId, ticketId, userName }) => {
         const room = rooms[roomId];
         if (room) {
+            if (room.drawnNumbers.length > 0) {
+                return socket.emit('error_msg', 'Số đã quay, không thể chọn thêm tờ mới!');
+            }
             const ticket = room.tickets.find(t => t.id === ticketId);
-            // Thêm check ticket tồn tại tránh crash
             if (ticket && !ticket.owner) {
                 ticket.owner = socket.id;
                 ticket.userName = userName;
@@ -69,10 +64,13 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 3. BỎ CHỌN VÉ (MỞ KHÓA)
+    // 3. BỎ CHỌN VÉ + CHẶN KHI ĐÃ QUAY SỐ
     socket.on('unpick_ticket', ({ roomId, ticketId }) => {
         const room = rooms[roomId];
         if (room) {
+            if (room.drawnNumbers.length > 0) {
+                return socket.emit('error_msg', 'Không thể bỏ tờ khi ván đấu đã bắt đầu!');
+            }
             const ticket = room.tickets.find(t => t.id === ticketId);
             if (ticket && ticket.owner === socket.id) {
                 ticket.owner = null;
@@ -85,23 +83,17 @@ io.on('connection', (socket) => {
     // 4. QUAY SỐ (CHỈ DEALER)
     socket.on('draw_number', (roomId) => {
         const room = rooms[roomId];
-        if (room && socket.id === room.dealer) {
-            if (room.drawnNumbers.length >= 90) return;
-
+        if (room && socket.id === room.dealer && room.drawnNumbers.length < 90) {
             let num;
-            do {
-                num = Math.floor(Math.random() * 90) + 1;
-            } while (room.drawnNumbers.includes(num));
+            do { num = Math.floor(Math.random() * 90) + 1; } 
+            while (room.drawnNumbers.includes(num));
 
             room.drawnNumbers.push(num);
-            io.in(roomId).emit('new_number', {
-                number: num,
-                history: room.drawnNumbers
-            });
+            io.in(roomId).emit('new_number', { number: num, history: room.drawnNumbers });
         }
     });
 
-    // 5. CHỈ ĐỊNH DEALER MỚI (GIAO CÁI)
+    // 5. GIAO CÁI
     socket.on('change_dealer', ({ roomId, targetUserId }) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer) {
@@ -110,53 +102,30 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 6. RESET TRÒ CHƠI
+    // 6. RESET
     socket.on('reset_game', (roomId) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer) {
             room.drawnNumbers = [];
-            // Reset luôn trạng thái gameStarted nếu cần
-            room.gameStarted = false; 
             io.in(roomId).emit('game_reset', room);
         }
     });
 
-    // 7. BÁO KINH (THẮNG)
-    socket.on('claim_win', ({ roomId, userName }) => {
-        io.in(roomId).emit('winner_announced', `${userName} đã báo KINH!`);
-    });
-
-    // 8. NGẮT KẾT NỐI
     socket.on('disconnect', () => {
-        for (const roomId in rooms) {
-            const room = rooms[roomId];
-            const userIndex = room.users.findIndex(u => u.id === socket.id);
-            
-            if (userIndex !== -1) {
-                room.users.splice(userIndex, 1);
-                
-                // Giải phóng vé khi thoát
-                room.tickets.forEach(t => {
-                    if (t.owner === socket.id) {
-                        t.owner = null;
-                        t.userName = null;
-                    }
-                });
-
-                if (room.users.length === 0) {
-                    delete rooms[roomId];
-                } else {
-                    if (room.dealer === socket.id) {
-                        room.dealer = room.users[0].id;
-                    }
-                    io.in(roomId).emit('room_state', room);
+        for (const rid in rooms) {
+            const r = rooms[rid];
+            const idx = r.users.findIndex(u => u.id === socket.id);
+            if (idx !== -1) {
+                r.users.splice(idx, 1);
+                r.tickets.forEach(t => { if(t.owner === socket.id){ t.owner = null; t.userName = null; }});
+                if (r.users.length === 0) delete rooms[rid];
+                else {
+                    if (r.dealer === socket.id) r.dealer = r.users[0].id;
+                    io.in(rid).emit('room_state', r);
                 }
             }
         }
     });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+server.listen(3000, () => console.log('Server running on port 3000'));
