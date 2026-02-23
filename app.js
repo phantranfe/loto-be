@@ -69,13 +69,16 @@ io.on('connection', (socket) => {
             };
         } else {
             if (rooms[roomId].password !== password) {
-                return socket.emit('join_error', 'Mật khẩu phòng không chính xác!');
+                return socket.emit('join_error', 'Mật khẩu phòng không chính xác.');
             }
             const nameExists = rooms[roomId].users.some(u =>
                 u.name.trim().toLowerCase() === userName.trim().toLowerCase()
             );
             if (nameExists) {
-                return socket.emit('join_error', 'Tên này đã có người sử dụng!');
+                return socket.emit('join_error', 'Tên này đã có người sử dụng.');
+            }
+            if (rooms[roomId].drawnNumbers?.length > 0) {
+                return socket.emit('join_error', 'Phòng này đã bắt đầu chơi.');
             }
         }
 
