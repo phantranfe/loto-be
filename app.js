@@ -22,14 +22,14 @@ const initTickets = () => {
     let tickets = [];
     TICKET_SETS.forEach((set, idx) => {
         tickets.push({
-            id: `${idx}-A`,
+            id: `${idx+1}-A`,
             color: set.color,
             data: set.A,
             owner: null,
             userName: null
         });
         tickets.push({
-            id: `${idx}-B`,
+            id: `${idx+1}-B`,
             color: set.color,
             data: set.B,
             owner: null,
