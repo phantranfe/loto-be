@@ -108,7 +108,7 @@ io.on('connection', (socket) => {
                 io.in(roomId).emit('update_tickets', room.tickets);
             }
         } else {
-            socket.emit('error_msg', 'Không thể chọn vé lúc này!');
+            socket.emit('error_msg', 'Không thể chọn vé lúc này.');
         }
     });
 
@@ -136,7 +136,7 @@ io.on('connection', (socket) => {
             const players = room.users.filter(u => u.id !== room.dealer);
             const allReady = players.length > 0 ? players.every(u => u.isReady) : true;
 
-            if (!allReady) return socket.emit('error_msg', 'Chưa đủ người sẵn sàng!');
+            if (!allReady) return socket.emit('error_msg', 'Chưa đủ người sẵn sàng.');
 
             room.drawnNumbers.push(number);
             io.in(roomId).emit('new_number', {
@@ -182,10 +182,7 @@ io.on('connection', (socket) => {
             room.drawnNumbers = [];
             room.users.forEach(u => u.isReady = false);
 
-            io.to(roomId).emit('game_reset', {
-                tickets: initTickets(),
-                users: room.users
-            });
+            io.to(roomId).emit('game_reset', room);
             checkReadyStatus(roomId);
         }
     });
