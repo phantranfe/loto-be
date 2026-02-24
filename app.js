@@ -172,7 +172,7 @@ io.on('connection', (socket) => {
     socket.on('claim_win', ({roomId, userName}) => {
         const room = rooms[roomId];
         if (room) {
-            io.to(roomId).emit('win', `${userName} đã thắng, hãy cùng nhau kiểm tra lại.`);
+            io.to(roomId).emit('win', userName);
         }
     });
 
