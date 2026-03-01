@@ -136,10 +136,10 @@ io.on('connection', (socket) => {
     }) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer && room.drawnNumbers.length < 90) {
-            const players = room.users.filter(u => u.id !== room.dealer);
-            const allReady = players.length > 0 ? players.every(u => u.isReady) : true;
+            // const players = room.users.filter(u => u.id !== room.dealer);
+            // const allReady = players.length > 0 ? players.every(u => u.isReady) : true;
 
-            if (!allReady) return socket.emit('error_msg', 'Chưa đủ người sẵn sàng.');
+            // if (!allReady) return socket.emit('error_msg', 'Chưa đủ người sẵn sàng.');
 
             room.drawnNumbers.push(number);
             io.in(roomId).emit('new_number', {
