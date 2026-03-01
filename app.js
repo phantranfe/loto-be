@@ -42,10 +42,13 @@ const initTickets = () => {
 const checkReadyStatus = (roomId) => {
     const room = rooms[roomId];
     if (room) {
-        const allReady = room.users.length > 0 ? room.users.every(u => u.isReady) : true;
+        const readyUsers = room.users.filter(u => u.isReady);
+        const allReady = room.users.length > 0 && room.users.length === readyUsers.length;
+        const atLeastOneUserReady = readyUsers.length > 0;
 
         io.to(roomId).emit('update_ready_status', {
-            allReady: allReady,
+            allReady,
+            atLeastOneUserReady,
             users: room.users
         });
     }
@@ -77,9 +80,9 @@ io.on('connection', (socket) => {
             if (nameExists) {
                 return socket.emit('join_error', 'Tên này đã có người sử dụng.');
             }
-            if (rooms[roomId].drawnNumbers?.length > 0) {
-                return socket.emit('join_error', 'Phòng này đã bắt đầu chơi.');
-            }
+            // if (rooms[roomId].drawnNumbers?.length > 0) {
+            //     return socket.emit('join_error', 'Phòng này đã bắt đầu chơi.');
+            // }
         }
 
         const room = rooms[roomId];
