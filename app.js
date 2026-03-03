@@ -186,6 +186,7 @@ io.on('connection', (socket) => {
         room.users.forEach(u => u.isReady = false);
 
         io.to(roomId).emit('game_reset', room);
+        io.in(roomId).emit("room_state", room);
         checkReadyStatus(roomId);
     }
 
