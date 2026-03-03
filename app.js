@@ -200,6 +200,9 @@ io.on('connection', (socket) => {
         const roomId = socket.roomId;
     const room = rooms[roomId];
         if (room) {
+        const idx = room.users.findIndex((u) => u.id === socket.id);
+        const user = room.users[idx];
+      if (idx !== -1) {
             room.users.splice(idx, 1);
                 room.tickets.forEach(t => {
                     if (t.owner === socket.id) {
@@ -226,6 +229,7 @@ io.on('connection', (socket) => {
                         checkReadyStatus(roomId);
                     }
                 }
+        }
         }
     });
 });
