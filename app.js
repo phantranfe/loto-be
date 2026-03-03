@@ -91,6 +91,7 @@ io.on('connection', (socket) => {
             name: userName,
             isReady: false
         });
+        socket.roomId = roomId;
         socket.join(roomId);
 
         io.in(roomId).emit('room_state', room);
@@ -196,37 +197,35 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        for (const rid in rooms) {
-            const r = rooms[rid];
-            const idx = r.users.findIndex(u => u.id === socket.id);
-            if (idx !== -1) {
-                r.users.splice(idx, 1);
-                r.tickets.forEach(t => {
+        const roomId = socket.roomId;
+    const room = rooms[roomId];
+        if (room) {
+            room.users.splice(idx, 1);
+                room.tickets.forEach(t => {
                     if (t.owner === socket.id) {
                         t.owner = null;
                         t.userName = null;
                     }
                 });
 
-                if (r.users.length === 0) {
-                    delete rooms[rid];
+                if (room.users.length === 0) {
+                    delete rooms[roomId];
                 } else {
-                    if (r.dealer === socket.id) {
-                          const readyUser = r.users.find((user) => user.isReady);
+                    if (room.dealer === socket.id) {
+                          const readyUser = room.users.find((user) => user.isReady);
                           if (readyUser) {
-                            r.dealer = readyUser.id;
-                            io.in(roomId).emit("room_state", r);
+                            room.dealer = readyUser.id;
+                            io.in(roomId).emit("room_state", room);
                             checkReadyStatus(roomId);
                           } else {
-                            r.dealer = r.users[0].id;
+                            room.dealer = room.users[0].id;
                             reset(roomId);
                           }
                     } else {
-                        io.in(rid).emit('room_state', r);
-                        checkReadyStatus(rid);
+                        io.in(roomId).emit("room_state", room);
+                        checkReadyStatus(roomId);
                     }
                 }
-            }
         }
     });
 });
