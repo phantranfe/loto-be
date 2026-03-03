@@ -179,14 +179,19 @@ io.on('connection', (socket) => {
         }
     });
 
+    function reset(roomId) {
+        const room = rooms[roomId];
+        room.drawnNumbers = [];
+        room.users.forEach(u => u.isReady = false);
+
+        io.to(roomId).emit('game_reset', room);
+        checkReadyStatus(roomId);
+    }
+
     socket.on('reset_game', (roomId) => {
         const room = rooms[roomId];
         if (room && socket.id === room.dealer) {
-            room.drawnNumbers = [];
-            room.users.forEach(u => u.isReady = false);
-
-            io.to(roomId).emit('game_reset', room);
-            checkReadyStatus(roomId);
+            reset(roomId);
         }
     });
 
@@ -206,9 +211,20 @@ io.on('connection', (socket) => {
                 if (r.users.length === 0) {
                     delete rooms[rid];
                 } else {
-                    if (r.dealer === socket.id) r.dealer = r.users[0].id;
-                    io.in(rid).emit('room_state', r);
-                    checkReadyStatus(rid);
+                    if (r.dealer === socket.id) {
+                          const readyUser = r.users.find((user) => user.isReady);
+                          if (readyUser) {
+                            r.dealer = readyUser.id;
+                            io.in(roomId).emit("room_state", r);
+                            checkReadyStatus(roomId);
+                          } else {
+                            r.dealer = r.users[0].id;
+                            reset(roomId);
+                          }
+                    } else {
+                        io.in(rid).emit('room_state', r);
+                        checkReadyStatus(rid);
+                    }
                 }
             }
         }
